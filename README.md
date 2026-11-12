@@ -26,6 +26,7 @@ A lightweight, opinionated .NET 11 library that wraps [CsvHelper](https://joshcl
   - [To a Stream](#to-a-stream)
   - [To a TextWriter](#to-a-textwriter)
   - [Async Writing](#async-writing)
+  - [Async-Enumerable Writing](#async-enumerable-writing)
   - [Appending to a File](#appending-to-a-file)
 - [String Extension Methods](#string-extension-methods)
 - [Configuration](#configuration)
@@ -62,7 +63,7 @@ CsvHelper is an excellent, full-featured library, but using it directly involves
 - Read from **string**, **file path**, **`Stream`**, or **`TextReader`**
 - Write to **string**, **file path**, **`Stream`**, or **`TextWriter`**
 - **Sync and async** variants for every operation
-- **`IAsyncEnumerable<T>` streaming** for processing large files row-by-row without buffering
+- **`IAsyncEnumerable<T>` streaming** for reading and writing large files without buffering all records
 - **Safe reading** — collect per-row errors into `CsvImportResult<T>` instead of throwing
 - **Append** to existing files without duplicating the header row
 - **Forgiving header matching** — strips spaces, underscores, and dashes; case-insensitive by default
@@ -417,6 +418,26 @@ await CsvWriter.WriteToStreamAsync(stream, products,
 
 ---
 
+### Async-Enumerable Writing
+
+The async writer methods also accept `IAsyncEnumerable<T>`. Records are requested one at a time, so an async producer can be written without first buffering everything into a list. The cancellation token is passed to the source enumerator as well as the writer.
+
+```csharp
+await CsvWriter.WriteToFileAsync(
+    "processed.csv",
+    CsvReader.StreamFromFile<Product>("input.csv", cancellationToken: cancellationToken),
+    cancellationToken: cancellationToken);
+
+await CsvWriter.AppendToFileAsync(
+    "processed.csv",
+    GetNewProductsAsync(cancellationToken),
+    cancellationToken: cancellationToken);
+```
+
+Async-enumerable overloads are available for `WriteToStringAsync`, `WriteToWriterAsync`, `WriteToStreamAsync`, `WriteToFileAsync`, and `AppendToFileAsync`.
+
+---
+
 ### Appending to a File
 
 `AppendToFile` and `AppendToFileAsync` add records to an existing file **without writing the header row again**. If the file does not exist, or is empty, the header is written normally.
@@ -698,13 +719,15 @@ foreach (var error in result.Errors)
 | Method | Sync/Async | Notes |
 |---|---|---|
 | `WriteToString<T>` | Sync | Returns `string` |
+| `WriteToStringAsync<T>` | Async | Accepts `IAsyncEnumerable<T>`, returns `Task<string>` |
 | `WriteToWriter<T>` | Sync | Caller owns `TextWriter` |
+| `WriteToWriterAsync<T>` | Async | Accepts `IAsyncEnumerable<T>`; caller owns `TextWriter` |
 | `WriteToStream<T>` | Sync | `leaveOpen` |
-| `WriteToStreamAsync<T>` | Async | `leaveOpen`, `CancellationToken` |
+| `WriteToStreamAsync<T>` | Async | Accepts `IEnumerable<T>` or `IAsyncEnumerable<T>`; `leaveOpen`, `CancellationToken` |
 | `WriteToFile<T>` | Sync | Creates or overwrites |
-| `WriteToFileAsync<T>` | Async | `CancellationToken` |
+| `WriteToFileAsync<T>` | Async | Accepts `IEnumerable<T>` or `IAsyncEnumerable<T>`; `CancellationToken` |
 | `AppendToFile<T>` | Sync | No duplicate header |
-| `AppendToFileAsync<T>` | Async | No duplicate header, `CancellationToken` |
+| `AppendToFileAsync<T>` | Async | Accepts `IEnumerable<T>` or `IAsyncEnumerable<T>`; no duplicate header, `CancellationToken` |
 
 ### `CsvDefaults` — static class
 

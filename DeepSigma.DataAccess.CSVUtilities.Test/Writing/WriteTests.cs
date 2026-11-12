@@ -1,6 +1,7 @@
 using DeepSigma.DataAccess.CsvUtilities.Reading;
 using DeepSigma.DataAccess.CsvUtilities.Test.Fixtures;
 using DeepSigma.DataAccess.CsvUtilities.Writing;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace DeepSigma.DataAccess.CsvUtilities.Test.Writing;
@@ -16,6 +17,18 @@ public sealed class WriteTests : IDisposable
         new() { Id = 1, FirstName = "Alice", LastName = "Smith", Email = "alice@example.com", Balance = 1234.56m, BirthDate = new DateOnly(1990, 5, 15) },
         new() { Id = 2, FirstName = "Bob", LastName = "Jones", Email = "bob@example.com", Balance = 0m }
     ];
+
+    private static async IAsyncEnumerable<CustomerCsvRow> ToAsyncEnumerable(
+        IEnumerable<CustomerCsvRow> records,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        foreach (var record in records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Yield();
+            yield return record;
+        }
+    }
 
     // -------------------------------------------------------------------------
     // WriteToString
@@ -41,6 +54,20 @@ public sealed class WriteTests : IDisposable
         Assert.Equal(original.Count, roundTripped.Count);
         Assert.Equal(original[0].FirstName, roundTripped[0].FirstName);
         Assert.Equal(original[0].Balance, roundTripped[0].Balance);
+    }
+
+    [Fact]
+    public async Task WriteToStringAsync_AsyncEnumerable_RoundTripsData()
+    {
+        var original = SampleRecords();
+        var csv = await CsvWriter.WriteToStringAsync(
+            ToAsyncEnumerable(original),
+            cancellationToken: TestContext.Current.CancellationToken);
+        var roundTripped = CsvReader.ReadFromString<CustomerCsvRow>(csv);
+
+        Assert.Equal(original.Count, roundTripped.Count);
+        Assert.Equal(original[0].FirstName, roundTripped[0].FirstName);
+        Assert.Equal(original[1].Email, roundTripped[1].Email);
     }
 
     // -------------------------------------------------------------------------
@@ -75,6 +102,20 @@ public sealed class WriteTests : IDisposable
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(new FileInfo(_tempFile).Length > 0);
+    }
+
+    [Fact]
+    public async Task WriteToFileAsync_AsyncEnumerable_WritesAllRecords()
+    {
+        await CsvWriter.WriteToFileAsync(
+            _tempFile,
+            ToAsyncEnumerable(SampleRecords()),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var records = CsvReader.ReadFromFile<CustomerCsvRow>(_tempFile);
+        Assert.Equal(2, records.Count);
+        Assert.Equal("Alice", records[0].FirstName);
+        Assert.Equal("Bob", records[1].FirstName);
     }
 
     [Fact]
@@ -146,6 +187,25 @@ public sealed class WriteTests : IDisposable
         Assert.Equal(3, lines.Count);
     }
 
+    [Fact]
+    public async Task AppendToFileAsync_AsyncEnumerable_DoesNotDuplicateHeader()
+    {
+        var records = SampleRecords();
+        await CsvWriter.AppendToFileAsync(
+            _tempFile,
+            ToAsyncEnumerable(records.Take(1)),
+            cancellationToken: TestContext.Current.CancellationToken);
+        await CsvWriter.AppendToFileAsync(
+            _tempFile,
+            ToAsyncEnumerable(records.Skip(1)),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var imported = CsvReader.ReadFromFile<CustomerCsvRow>(_tempFile);
+        Assert.Equal(2, imported.Count);
+        Assert.Equal("Alice", imported[0].FirstName);
+        Assert.Equal("Bob", imported[1].FirstName);
+    }
+
     // -------------------------------------------------------------------------
     // WriteToStream
     // -------------------------------------------------------------------------
@@ -181,5 +241,38 @@ public sealed class WriteTests : IDisposable
         stream.Position = 0;
         var text = Encoding.UTF8.GetString(stream.ToArray());
         Assert.Contains("Alice", text);
+    }
+
+    [Fact]
+    public async Task WriteToStreamAsync_AsyncEnumerable_WritesAllRecordsAndLeavesStreamOpen()
+    {
+        using var stream = new MemoryStream();
+        await CsvWriter.WriteToStreamAsync(
+            stream,
+            ToAsyncEnumerable(SampleRecords()),
+            leaveOpen: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(stream.CanRead);
+        stream.Position = 0;
+        var imported = CsvReader.ReadFromStream<CustomerCsvRow>(stream, leaveOpen: true);
+        Assert.Equal(2, imported.Count);
+        Assert.Equal("Alice", imported[0].FirstName);
+        Assert.Equal("Bob", imported[1].FirstName);
+    }
+
+    [Fact]
+    public async Task WriteToWriterAsync_AsyncEnumerable_WritesContent()
+    {
+        using var writer = new StringWriter();
+        await CsvWriter.WriteToWriterAsync(
+            writer,
+            ToAsyncEnumerable(SampleRecords()),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var imported = CsvReader.ReadFromString<CustomerCsvRow>(writer.ToString());
+        Assert.Equal(2, imported.Count);
+        Assert.Equal("Alice", imported[0].FirstName);
+        Assert.Equal("Bob", imported[1].FirstName);
     }
 }
