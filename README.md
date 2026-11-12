@@ -65,6 +65,7 @@ CsvHelper is an excellent, full-featured library, but using it directly involves
 - **Sync and async** variants for every operation
 - **`IAsyncEnumerable<T>` streaming** for reading and writing large files without buffering all records
 - **Safe reading** — collect per-row errors into `CsvImportResult<T>` instead of throwing
+- **Untyped raw rows** from a string, with multi-character delimiters and malformed-row reporting
 - **Append** to existing files without duplicating the header row
 - **Forgiving header matching** — strips spaces, underscores, and dashes; case-insensitive by default
 - **Opt-in `CultureInfo`** for locale-sensitive type conversion (dates, decimals, etc.)
@@ -84,7 +85,7 @@ dotnet add package DeepSigma.DataAccess.CSVUtilities
 Or add the `PackageReference` directly to your `.csproj`:
 
 ```xml
-<PackageReference Include="DeepSigma.DataAccess.CSVUtilities" Version="2.0.0" />
+<PackageReference Include="DeepSigma.DataAccess.CSVUtilities" Version="2.1.0" />
 ```
 
 ---
@@ -105,7 +106,8 @@ DeepSigma.DataAccess.CSVUtilities/
 ├── Configuration/
 │   └── CsvDefaults.cs          # Default CsvHelper options factories
 ├── Reading/
-│   └── CsvReader.cs            # All read operations
+│   ├── CsvReader.cs            # Typed record operations
+│   └── CsvRawReader.cs         # Untyped rows from strings
 ├── Writing/
 │   └── CsvWriter.cs            # All write operations
 ├── Results/
@@ -114,6 +116,35 @@ DeepSigma.DataAccess.CSVUtilities/
 └── Extensions/
     └── StringExtensions.cs     # FromCsv<T> / ToCsv extension methods
 ```
+
+---
+
+## Raw rows without a model
+
+`CsvRawReader.ReadFromString` lazily returns every nonempty record, including the first
+record; callers decide whether it is a header. It supports nonempty delimiters of one
+or more characters, quoted fields, escaped quotes, and embedded line breaks. Delimiters
+cannot contain quotes or line breaks. Each `CsvRawRow` includes the fields, the one-based
+starting physical line, and an `IsMalformed` flag. Malformed quoting is recovered: stray
+quotes in unquoted fields are retained, text after a closing quote is appended, and an
+unclosed quoted field consumes the rest of the input. Check `IsMalformed` before relying
+on recovered data. Empty physical lines are skipped; whitespace-only lines are retained.
+The input is already a string, but parsing and row allocation are lazy, so enumeration can
+stop early. A cancellation token can be supplied for long inputs.
+
+```csharp
+using DeepSigma.DataAccess.CsvUtilities.Reading;
+
+foreach (CsvRawRow row in CsvRawReader.ReadFromString("name||value\nAlice||42", "||"))
+{
+    Console.WriteLine($"Line {row.LineNumber}: {string.Join(", ", row.Fields)}");
+    if (row.IsMalformed)
+        Console.WriteLine("Malformed quoting was recovered.");
+}
+```
+
+This API is separate from the typed `CsvReader` methods, which use CsvHelper 34 and
+continue to accept only single-character delimiters.
 
 ---
 

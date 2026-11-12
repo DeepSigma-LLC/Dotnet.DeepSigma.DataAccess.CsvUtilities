@@ -7,7 +7,7 @@
 
     <!-- NuGet packaging -->
     <PackageId>DeepSigma.DataAccess.CsvUtilities</PackageId>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Authors>DeepSigma LLC</Authors>
     <Description>
       A lightweight, opinionated wrapper around CsvHelper that provides a simple API for reading
