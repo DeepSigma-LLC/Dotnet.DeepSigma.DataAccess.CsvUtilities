@@ -1,6 +1,6 @@
 # DeepSigma.DataAccess.CSVUtilities
 
-A lightweight, opinionated .NET 10 library that wraps [CsvHelper](https://joshclose.github.io/CsvHelper/) to provide a clean, consistent API for reading and writing CSV data from files, streams, strings, and `TextReader`/`TextWriter` instances — including full async support, `IAsyncEnumerable<T>` streaming, per-row safe error collection, and culture-aware type conversion.
+A lightweight, opinionated .NET 11 library that wraps [CsvHelper](https://joshclose.github.io/CsvHelper/) to provide a clean, consistent API for reading and writing CSV data from files, streams, strings, and `TextReader`/`TextWriter` instances — including full async support, `IAsyncEnumerable<T>` streaming, per-row safe error collection, and culture-aware type conversion.
 
 ---
 
@@ -34,9 +34,7 @@ A lightweight, opinionated .NET 10 library that wraps [CsvHelper](https://joshcl
   - [Delimiter](#delimiter)
   - [Culture and Localization](#culture-and-localization)
   - [Headerless Files](#headerless-files)
-- [Custom Class Maps](#custom-class-maps)
-  - [Header-Based Mapping](#header-based-mapping)
-  - [Index-Based Mapping (No Header)](#index-based-mapping-no-header)
+- [Attribute-Based Record Mapping](#attribute-based-record-mapping)
 - [Advanced Topics](#advanced-topics)
   - [Cancellation Tokens](#cancellation-tokens)
   - [The leaveOpen Flag](#the-leaveopen-flag)
@@ -48,14 +46,14 @@ A lightweight, opinionated .NET 10 library that wraps [CsvHelper](https://joshcl
 
 ## Why This Library?
 
-CsvHelper is an excellent, full-featured library, but using it directly involves boilerplate: creating `CsvConfiguration`, wiring up `StreamReader`, registering class maps, handling cancellation, and managing disposal. This library removes that setup for the common cases while staying thin enough that you can drop down to raw CsvHelper types whenever you need to.
+CsvHelper is an excellent, full-featured library, but using it directly involves boilerplate: creating reader/writer options, wiring up streams, handling cancellation, and managing disposal. This library removes that setup for the common cases while staying thin enough that you can still pass CsvHelper 34 options when you need custom behavior.
 
 **Guiding principles:**
 
 - One-liners for the 90% case
 - Every method works identically regardless of the input source (string / file / stream / reader)
-- Consistent opt-in patterns for maps, culture, cancellation, and `leaveOpen`
-- No magic — if you need full CsvHelper control, pass a `CsvConfiguration` you built yourself
+- Consistent opt-in patterns for generated record attributes, culture, cancellation, and `leaveOpen`
+- If you need full CsvHelper control, pass a `CsvReaderOptions` or `CsvWriterOptions` instance
 
 ---
 
@@ -71,7 +69,7 @@ CsvHelper is an excellent, full-featured library, but using it directly involves
 - **Opt-in `CultureInfo`** for locale-sensitive type conversion (dates, decimals, etc.)
 - **`leaveOpen` flag** on all stream-accepting methods
 - **`CancellationToken` support** on all async methods
-- **Custom `ClassMap<T>`** support for explicit column-to-property control
+- **Source-generated record mappings** via CsvHelper 34's `[CsvRecord]` and `[CsvColumn]` attributes
 - **XML documentation** on every public member for full IntelliSense coverage
 
 ---
@@ -85,7 +83,7 @@ dotnet add package DeepSigma.DataAccess.CSVUtilities
 Or add the `PackageReference` directly to your `.csproj`:
 
 ```xml
-<PackageReference Include="DeepSigma.DataAccess.CSVUtilities" Version="1.0.0" />
+<PackageReference Include="DeepSigma.DataAccess.CSVUtilities" Version="2.0.0" />
 ```
 
 ---
@@ -94,8 +92,8 @@ Or add the `PackageReference` directly to your `.csproj`:
 
 | Component | Version |
 |---|---|
-| .NET | 10.0+ |
-| CsvHelper | 33.1.0+ |
+| .NET | 11.0 |
+| CsvHelper | 34.0.0 |
 
 ---
 
@@ -104,7 +102,7 @@ Or add the `PackageReference` directly to your `.csproj`:
 ```
 DeepSigma.DataAccess.CSVUtilities/
 ├── Configuration/
-│   └── CsvDefaults.cs          # Default CsvConfiguration factory
+│   └── CsvDefaults.cs          # Default CsvHelper options factories
 ├── Reading/
 │   └── CsvReader.cs            # All read operations
 ├── Writing/
@@ -120,10 +118,13 @@ DeepSigma.DataAccess.CSVUtilities/
 
 ## Quick Start
 
-Define a model:
+Define a record model for CsvHelper 34's source generator:
 
 ```csharp
-public class Product
+using CsvHelper;
+
+[CsvRecord]
+public partial class Product
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -172,8 +173,8 @@ All read methods share the same optional parameters:
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `config` | `CsvConfiguration?` | `null` | Full CsvHelper configuration; defaults to `CsvDefaults.CreateDefault()` when omitted |
-| `culture` | `CultureInfo?` | `null` | Culture for type conversion; ignored if `config` is also provided; defaults to `InvariantCulture` when `null` |
+| `config` | `CsvReaderOptions?` | `null` | CsvHelper 34 reader options; defaults to `CsvDefaults.CreateDefault()` when omitted |
+| `culture` | `CultureInfo?` | `null` | Culture for type conversion; applied when `config` is `null`; defaults to `InvariantCulture` |
 | `leaveOpen` | `bool` | `false` | (stream overloads only) Whether to keep the stream open after the read |
 | `cancellationToken` | `CancellationToken` | `default` | (async overloads only) Token to cancel the operation |
 
@@ -188,15 +189,11 @@ string csvText = """
     2,Gadget,24.50
     """;
 
-// Auto-map by property name
+// The Product type is annotated with [CsvRecord]; use [CsvColumn] for aliases.
 List<Product> products = CsvReader.ReadFromString<Product>(csvText);
-
-// With an explicit ClassMap (see Custom Class Maps section)
-List<Product> products = CsvReader.ReadFromString<Product, ProductMap>(csvText);
 
 // Safe mode — collect errors instead of throwing
 CsvImportResult<Product> result = CsvReader.ReadFromStringSafe<Product>(csvText);
-CsvImportResult<Product> result = CsvReader.ReadFromStringSafe<Product, ProductMap>(csvText);
 ```
 
 ---
@@ -204,15 +201,11 @@ CsvImportResult<Product> result = CsvReader.ReadFromStringSafe<Product, ProductM
 ### From a File
 
 ```csharp
-// Auto-map
+// Product uses CsvHelper 34's source-generated record attributes.
 List<Product> products = CsvReader.ReadFromFile<Product>("products.csv");
-
-// With an explicit ClassMap
-List<Product> products = CsvReader.ReadFromFile<Product, ProductMap>("products.csv");
 
 // Safe mode
 CsvImportResult<Product> result = CsvReader.ReadFromFileSafe<Product>("products.csv");
-CsvImportResult<Product> result = CsvReader.ReadFromFileSafe<Product, ProductMap>("products.csv");
 ```
 
 ---
@@ -254,13 +247,8 @@ CsvImportResult<Product> result = CsvReader.ReadFromReaderSafe<Product>(reader);
 ### Async Reading
 
 ```csharp
-// From file
+// From file; mapping comes from the Product record attributes
 List<Product> products = await CsvReader.ReadFromFileAsync<Product>(
-    "products.csv",
-    cancellationToken: cancellationToken);
-
-// From file with explicit map
-List<Product> products = await CsvReader.ReadFromFileAsync<Product, ProductMap>(
     "products.csv",
     cancellationToken: cancellationToken);
 
@@ -287,17 +275,6 @@ await foreach (var product in CsvReader.StreamFromFile<Product>(
 }
 ```
 
-With an explicit map:
-
-```csharp
-await foreach (var product in CsvReader.StreamFromFile<Product, ProductMap>(
-    "large-catalog.csv",
-    cancellationToken: cancellationToken))
-{
-    await pipeline.ProcessAsync(product);
-}
-```
-
 From a stream:
 
 ```csharp
@@ -319,7 +296,7 @@ Because `IAsyncEnumerable<T>` is lazy, the CSV file is read only as fast as the 
 By default, any row that fails to parse throws an exception and aborts the operation. The `*Safe` variants instead capture each row-level error and continue, returning a `CsvImportResult<T>`:
 
 ```csharp
-CsvImportResult<Product> result = CsvReader.ReadFromFileSafe<Product, ProductMap>(
+CsvImportResult<Product> result = CsvReader.ReadFromFileSafe<Product>(
     "products.csv");
 
 if (result.IsSuccess)
@@ -358,9 +335,7 @@ Safe variants are available for every source type:
 
 ```csharp
 CsvReader.ReadFromStringSafe<T>()
-CsvReader.ReadFromStringSafe<T, TMap>()
 CsvReader.ReadFromFileSafe<T>()
-CsvReader.ReadFromFileSafe<T, TMap>()
 CsvReader.ReadFromStreamSafe<T>()
 CsvReader.ReadFromReaderSafe<T>()
 ```
@@ -373,8 +348,8 @@ All write methods share the same optional parameters:
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `config` | `CsvConfiguration?` | `null` | Full CsvHelper configuration; defaults to `CsvDefaults.CreateDefault()` when omitted |
-| `culture` | `CultureInfo?` | `null` | Culture for type conversion |
+| `config` | `CsvWriterOptions?` | `null` | CsvHelper 34 writer options; defaults to `CsvDefaults.CreateWriterOptions()` when omitted |
+| `culture` | `CultureInfo?` | `null` | Culture for type conversion; applied when `config` is `null` |
 | `leaveOpen` | `bool` | `false` | (stream overloads only) Whether to keep the stream open after writing |
 | `cancellationToken` | `CancellationToken` | `default` | (async overloads only) Token to cancel the operation |
 
@@ -479,7 +454,7 @@ string csv = products.ToCsv();
 string roundTripped = products.ToCsv().FromCsv<Product>().ToCsv();
 ```
 
-Both methods accept the same optional `config` and `culture` parameters as the other methods.
+`FromCsv` accepts `CsvReaderOptions`; `ToCsv` accepts `CsvWriterOptions`. Both accept an optional culture override.
 
 ---
 
@@ -487,53 +462,22 @@ Both methods accept the same optional `config` and `culture` parameters as the o
 
 ### CsvDefaults
 
-`CsvDefaults.CreateDefault()` returns a `CsvConfiguration` with sensible defaults for real-world CSV files:
+`CsvDefaults.CreateDefault()` returns CsvHelper 34 `CsvReaderOptions`; use `CreateWriterOptions()` for output:
 
 ```csharp
 using DeepSigma.DataAccess.CSVUtilities.Configuration;
 
-// Use defaults
-CsvConfiguration config = CsvDefaults.CreateDefault();
+CsvReaderOptions readerOptions = CsvDefaults.CreateDefault();
+CsvReaderOptions semicolonReader = CsvDefaults.CreateDefault(delimiter: ";");
+CsvReaderOptions headerlessReader = CsvDefaults.CreateDefault(hasHeader: false);
+CsvReaderOptions localizedReader = CsvDefaults.CreateDefault(culture: new CultureInfo("de-DE"));
 
-// Override delimiter
-CsvConfiguration config = CsvDefaults.CreateDefault(delimiter: ";");
-
-// Headerless file
-CsvConfiguration config = CsvDefaults.CreateDefault(hasHeader: false);
-
-// Opt-in culture (e.g. for European decimal comma)
-CsvConfiguration config = CsvDefaults.CreateDefault(culture: new CultureInfo("de-DE"));
-
-// All options
-CsvConfiguration config = CsvDefaults.CreateDefault(
-    hasHeader: true,
-    delimiter: "\t",
-    culture: CultureInfo.CurrentCulture);
+CsvWriterOptions writerOptions = CsvDefaults.CreateWriterOptions(delimiter: "|");
 ```
 
-Default behaviours enabled by `CsvDefaults.CreateDefault`:
+Reader defaults normalize headers by trimming, removing spaces, underscores, and dashes, and lowercasing; they also skip rows containing only empty or whitespace fields. Missing fields are read as empty values and malformed records use CsvHelper 34's recovery behavior. The default format provider is `InvariantCulture`.
 
-| Behaviour | Detail |
-|---|---|
-| Forgiving header matching | Headers are normalized before matching (see below) |
-| Empty row skipping | Rows where every field is whitespace or empty are silently skipped |
-| Suppressed header validation | Missing or extra headers do not throw |
-| Suppressed missing-field errors | Fields not present in a row default to the property's zero value |
-| Suppressed bad-data errors | Unparseable field values default silently (or appear as errors in Safe mode) |
-| Culture | `InvariantCulture` unless overridden |
-
-You can pass any `CsvConfiguration` you build yourself — the library will use it as-is, bypassing all of the above defaults:
-
-```csharp
-var config = new CsvConfiguration(CultureInfo.CurrentCulture)
-{
-    Delimiter = "|",
-    HasHeaderRecord = true,
-    // full CsvHelper options available here
-};
-
-List<Product> products = CsvReader.ReadFromFile<Product>("products.csv", config);
-```
+Pass any `CsvReaderOptions` or `CsvWriterOptions` value to the corresponding methods to customize behavior. The option types are separate in CsvHelper 34, so reading and writing use distinct options.
 
 ---
 
@@ -554,7 +498,7 @@ This means the following headers all map to the `FirstName` property:
 | `FIRST-NAME` | `firstname` | `FirstName` → `firstname` ✓ |
 | `firstname` | `firstname` | `FirstName` → `firstname` ✓ |
 
-> **Note:** Compound prefixes like `customer_id` normalize to `customerid`, which does **not** match a property named `Id` (normalizes to `id`). For such cases use an explicit `ClassMap` (see below).
+> **Note:** Compound headers like `customer_id` normalize to `customerid`, which does **not** match a property named `Id` (normalizes to `id`). Specify aliases such as `[CsvColumn("customer_id", "id")]` on the record member.
 
 ---
 
@@ -600,80 +544,38 @@ List<Order> orders = CsvReader.ReadFromFile<Order>(
 
 ---
 
-### Headerless Files
+### Attribute-Based Record Mapping
+
+CsvHelper 34 generates mapper code at compile time. Record models must be `partial` and marked `[CsvRecord]`; use `[CsvColumn]` for aliases or index-based fields.
 
 ```csharp
-var config = CsvDefaults.CreateDefault(hasHeader: false);
+using CsvHelper;
 
-// Must use an index-based ClassMap (see Custom Class Maps)
-List<Product> products = CsvReader.ReadFromFile<Product, ProductNoHeaderMap>(
-    "products.csv", config);
-```
-
----
-
-## Custom Class Maps
-
-When auto-mapping is insufficient — because header names don't follow a mappable pattern, columns have no headers, or you need fine-grained control — define a `ClassMap<T>` and pass it as the second type argument.
-
-### Header-Based Mapping
-
-```csharp
-using CsvHelper.Configuration;
-
-public sealed class ProductMap : ClassMap<Product>
+[CsvRecord]
+public sealed partial class Product
 {
-    public ProductMap()
-    {
-        // Map multiple possible header names to the same property
-        Map(x => x.Id).Name("product_id", "id", "sku");
-        Map(x => x.Name).Name("product_name", "name", "title");
-        Map(x => x.Price).Name("unit_price", "price", "cost");
-        Map(x => x.ReleaseDate).Name("release_date", "date").Optional();
-    }
+    [CsvColumn("product_id", "id", "sku")]
+    public int Id { get; set; }
+
+    [CsvColumn("product_name", "name", "title")]
+    public string Name { get; set; } = string.Empty;
+
+    [CsvColumn("unit_price", "price", "cost")]
+    public decimal Price { get; set; }
+
+    [CsvColumn("release_date", "date", Optional = true)]
+    public DateOnly? ReleaseDate { get; set; }
 }
 ```
 
-Pass the map as the second type parameter:
+Read using the ordinary generic overloads; the mapping is generated from the model attributes:
 
 ```csharp
-List<Product> products = CsvReader.ReadFromFile<Product, ProductMap>("products.csv");
-
-List<Product> products = CsvReader.ReadFromString<Product, ProductMap>(csvText);
-
-await foreach (var p in CsvReader.StreamFromFile<Product, ProductMap>("products.csv"))
-{
-    // ...
-}
+List<Product> products = CsvReader.ReadFromFile<Product>("products.csv");
+List<Product> fromText = CsvReader.ReadFromString<Product>(csvText);
 ```
 
-`.Optional()` means the column may be absent — if the header is missing the field is simply left at its default value rather than throwing.
-
----
-
-### Index-Based Mapping (No Header)
-
-For files with no header row, map by column position (0-based index):
-
-```csharp
-public sealed class ProductNoHeaderMap : ClassMap<Product>
-{
-    public ProductNoHeaderMap()
-    {
-        Map(x => x.Id).Index(0);
-        Map(x => x.Name).Index(1);
-        Map(x => x.Price).Index(2);
-        Map(x => x.ReleaseDate).Index(3).Optional();
-    }
-}
-```
-
-```csharp
-var config = CsvDefaults.CreateDefault(hasHeader: false);
-
-List<Product> products = CsvReader.ReadFromFile<Product, ProductNoHeaderMap>(
-    "products_no_header.csv", config);
-```
+For files without a header, set `[CsvColumn(Index = ...)]` on each member and pass `CsvDefaults.CreateDefault(hasHeader: false)`. A missing optional column leaves the member's default value.
 
 ---
 
@@ -779,9 +681,7 @@ foreach (var error in result.Errors)
 | Method | Sync/Async | Returns | Notes |
 |---|---|---|---|
 | `ReadFromString<T>` | Sync | `List<T>` | |
-| `ReadFromString<T, TMap>` | Sync | `List<T>` | With explicit map |
 | `ReadFromStringSafe<T>` | Sync | `CsvImportResult<T>` | |
-| `ReadFromStringSafe<T, TMap>` | Sync | `CsvImportResult<T>` | |
 | `ReadFromReader<T>` | Sync | `List<T>` | Caller owns `TextReader` |
 | `ReadFromReaderSafe<T>` | Sync | `CsvImportResult<T>` | |
 | `ReadFromStream<T>` | Sync | `List<T>` | `leaveOpen` |
@@ -789,13 +689,9 @@ foreach (var error in result.Errors)
 | `ReadFromStreamAsync<T>` | Async | `Task<List<T>>` | `leaveOpen`, `CancellationToken` |
 | `StreamFromStream<T>` | Async streaming | `IAsyncEnumerable<T>` | `leaveOpen`, `CancellationToken` |
 | `ReadFromFile<T>` | Sync | `List<T>` | |
-| `ReadFromFile<T, TMap>` | Sync | `List<T>` | |
 | `ReadFromFileSafe<T>` | Sync | `CsvImportResult<T>` | |
-| `ReadFromFileSafe<T, TMap>` | Sync | `CsvImportResult<T>` | |
 | `ReadFromFileAsync<T>` | Async | `Task<List<T>>` | `CancellationToken` |
-| `ReadFromFileAsync<T, TMap>` | Async | `Task<List<T>>` | `CancellationToken` |
 | `StreamFromFile<T>` | Async streaming | `IAsyncEnumerable<T>` | `CancellationToken` |
-| `StreamFromFile<T, TMap>` | Async streaming | `IAsyncEnumerable<T>` | `CancellationToken` |
 
 ### `CsvWriter` — static class
 
@@ -814,7 +710,8 @@ foreach (var error in result.Errors)
 
 | Method | Description |
 |---|---|
-| `CreateDefault(hasHeader, delimiter, culture)` | Returns a `CsvConfiguration` with forgiving defaults |
+| `CreateDefault(hasHeader, delimiter, culture)` | Returns `CsvReaderOptions` with forgiving defaults |
+| `CreateWriterOptions(hasHeader, delimiter, culture)` | Returns configured `CsvWriterOptions` |
 
 ### `StringExtensions`
 

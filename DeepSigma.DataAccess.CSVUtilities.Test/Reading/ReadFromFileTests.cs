@@ -12,7 +12,7 @@ public sealed class ReadFromFileTests
     [Fact]
     public void ReadFromFile_WithHeaderFile_ReturnsMappedRecords()
     {
-        var records = CsvReader.ReadFromFile<CustomerCsvRow, CustomerCsvMap>(
+        var records = CsvReader.ReadFromFile<CustomerCsvRow>(
             DataPath("customers_with_header.csv"));
 
         Assert.Equal(3, records.Count);
@@ -23,13 +23,11 @@ public sealed class ReadFromFileTests
     }
 
     [Fact]
-    public void ReadFromFile_NoMap_AutoMapsProperties()
+    public void ReadFromFile_UsesGeneratedMapping()
     {
         var records = CsvReader.ReadFromFile<CustomerCsvRow>(
             DataPath("customers_with_header.csv"));
 
-        // Auto-map via PrepareHeaderForMatch: "customer_id" → "customerid", property "id" → matches
-        // first_name → "firstname" matches FirstName, etc.
         Assert.Equal(3, records.Count);
     }
 
@@ -44,7 +42,7 @@ public sealed class ReadFromFileTests
     public void ReadFromFile_WithSemicolonDelimiter_ParsesCorrectly()
     {
         var config = CsvDefaults.CreateDefault(delimiter: ";");
-        var records = CsvReader.ReadFromFile<CustomerCsvRow, CustomerCsvMap>(
+        var records = CsvReader.ReadFromFile<CustomerCsvRow>(
             DataPath("customers_semicolon.csv"), config);
 
         Assert.Equal(2, records.Count);
@@ -54,7 +52,7 @@ public sealed class ReadFromFileTests
     [Fact]
     public async Task ReadFromFileAsync_WithHeaderFile_ReturnsMappedRecords()
     {
-        var records = await CsvReader.ReadFromFileAsync<CustomerCsvRow, CustomerCsvMap>(
+        var records = await CsvReader.ReadFromFileAsync<CustomerCsvRow>(
             DataPath("customers_with_header.csv"),
             cancellationToken: TestContext.Current.CancellationToken);
 
@@ -81,7 +79,7 @@ public sealed class ReadFromFileTests
     public async Task StreamFromFile_YieldsAllRecords()
     {
         var records = new List<CustomerCsvRow>();
-        await foreach (var record in CsvReader.StreamFromFile<CustomerCsvRow, CustomerCsvMap>(
+        await foreach (var record in CsvReader.StreamFromFile<CustomerCsvRow>(
             DataPath("customers_with_header.csv"),
             cancellationToken: TestContext.Current.CancellationToken))
         {
@@ -94,7 +92,7 @@ public sealed class ReadFromFileTests
     [Fact]
     public void ReadFromFileSafe_WithBadRows_CollectsErrorsAndContinues()
     {
-        var result = CsvReader.ReadFromFileSafe<CustomerCsvRow, CustomerCsvMap>(
+        var result = CsvReader.ReadFromFileSafe<CustomerCsvRow>(
             DataPath("customers_with_bad_rows.csv"));
 
         Assert.Equal(2, result.Records.Count);
@@ -103,10 +101,10 @@ public sealed class ReadFromFileTests
     }
 
     [Fact]
-    public void ReadFromFile_WithNoHeaderFile_UsesIndexMap()
+    public void ReadFromFile_WithNoHeaderFile_UsesIndexAttributes()
     {
         var config = CsvDefaults.CreateDefault(hasHeader: false);
-        var records = CsvReader.ReadFromFile<CustomerCsvRow, CustomerNoHeaderMap>(
+        var records = CsvReader.ReadFromFile<CustomerCsvNoHeaderRow>(
             DataPath("customers_no_header.csv"), config);
 
         Assert.Equal(3, records.Count);

@@ -1,57 +1,67 @@
-using CsvHelper.Configuration;
+using CsvHelper;
 using System.Globalization;
 
 namespace DeepSigma.DataAccess.CsvUtilities.Configuration;
 
 /// <summary>
-/// Factory for creating pre-configured <see cref="CsvConfiguration"/> instances with sensible defaults.
+/// Factory for creating CsvHelper 34 reader and writer options with sensible defaults.
 /// </summary>
 public static class CsvDefaults
 {
     /// <summary>
-    /// Creates a <see cref="CsvConfiguration"/> with forgiving header matching, empty-row skipping,
-    /// and suppressed missing-field/bad-data exceptions.
+    /// Creates reader options with forgiving header matching and empty-row skipping.
     /// </summary>
-    /// <param name="hasHeader">
-    /// Whether the CSV has a header row. Defaults to <see langword="true"/>.
-    /// </param>
-    /// <param name="delimiter">
-    /// The field delimiter. Defaults to <c>","</c>.
-    /// </param>
-    /// <param name="culture">
-    /// The culture used for type conversion. Defaults to <see cref="CultureInfo.InvariantCulture"/>
-    /// when <see langword="null"/>.
-    /// </param>
-    /// <returns>A new <see cref="CsvConfiguration"/> instance.</returns>
-    public static CsvConfiguration CreateDefault(
+    public static CsvReaderOptions CreateDefault(
         bool hasHeader = true,
         string delimiter = ",",
         CultureInfo? culture = null)
     {
-        return new CsvConfiguration(culture ?? CultureInfo.InvariantCulture)
+        var separator = GetSeparator(delimiter);
+        return CsvReaderOptions.Default with
         {
-            HasHeaderRecord = hasHeader,
-            Delimiter = delimiter,
-
-            // Trim whitespace and ignore casing/separators when matching headers to properties.
-            PrepareHeaderForMatch = args =>
-                args.Header?.Trim()
-                    .Replace(" ", "")
-                    .Replace("_", "")
-                    .Replace("-", "")
-                    .ToLowerInvariant() ?? "",
-
-            // Skip rows where every field is empty or whitespace.
-            ShouldSkipRecord = args =>
+            HasHeader = hasHeader,
+            Separator = separator,
+            FormatProvider = culture ?? CultureInfo.InvariantCulture,
+            NormalizeHeaderName = static header => header.Trim()
+                .Replace(" ", "")
+                .Replace("_", "")
+                .Replace("-", "")
+                .ToLowerInvariant(),
+            ShouldSkipRecord = static record =>
             {
-                var record = args.Row.Parser.Record;
-                return record is null || record.All(string.IsNullOrWhiteSpace);
-            },
+                for (var index = 0; index < record.FieldCount; index++)
+                {
+                    if (!string.IsNullOrWhiteSpace(record[index].ToString()))
+                        return false;
+                }
 
-            // Suppress hard failures — callers that care can use ReadSafe / ReadFileSafe.
-            HeaderValidated = null,
-            MissingFieldFound = null,
-            BadDataFound = null
+                return true;
+            }
         };
+    }
+
+    /// <summary>
+    /// Creates writer options using the requested header, delimiter, and culture settings.
+    /// </summary>
+    public static CsvWriterOptions CreateWriterOptions(
+        bool hasHeader = true,
+        string delimiter = ",",
+        CultureInfo? culture = null)
+    {
+        return CsvWriterOptions.Default with
+        {
+            HasHeader = hasHeader,
+            Separator = GetSeparator(delimiter),
+            FormatProvider = culture ?? CultureInfo.InvariantCulture
+        };
+    }
+
+    private static char GetSeparator(string delimiter)
+    {
+        ArgumentNullException.ThrowIfNull(delimiter);
+        if (delimiter.Length != 1)
+            throw new ArgumentException("CsvHelper 34 supports a single-character separator.", nameof(delimiter));
+
+        return delimiter[0];
     }
 }

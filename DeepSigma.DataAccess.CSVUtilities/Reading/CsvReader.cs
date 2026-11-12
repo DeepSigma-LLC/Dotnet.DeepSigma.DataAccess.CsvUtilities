@@ -1,9 +1,9 @@
 using CsvHelper;
-using CsvHelper.Configuration;
 using DeepSigma.DataAccess.CsvUtilities.Configuration;
 using DeepSigma.DataAccess.CsvUtilities.Results;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace DeepSigma.DataAccess.CsvUtilities.Reading;
 
@@ -11,7 +11,7 @@ namespace DeepSigma.DataAccess.CsvUtilities.Reading;
 /// Static helper for reading CSV data from files, streams, strings, and <see cref="TextReader"/> instances.
 /// </summary>
 /// <remarks>
-/// All overloads accept an optional <see cref="CsvConfiguration"/>; when omitted the defaults from
+/// All overloads accept optional <see cref="CsvReaderOptions"/>; when omitted the defaults from
 /// <see cref="CsvDefaults.CreateDefault"/> are used.  Async overloads accept a
 /// <see cref="CancellationToken"/> and streaming overloads return <see cref="IAsyncEnumerable{T}"/>
 /// so callers can process large files row-by-row without buffering everything into memory.
@@ -32,32 +32,11 @@ public static class CsvReader
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static List<T> ReadFromString<T>(
         string csvText,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
     {
         using var reader = new StringReader(csvText);
         return ReadFromReader<T>(reader, config, culture);
-    }
-
-    /// <summary>
-    /// Parses a CSV string using a custom <see cref="ClassMap{T}"/> and returns all records as a list.
-    /// </summary>
-    /// <typeparam name="T">The type to map each row to.</typeparam>
-    /// <typeparam name="TMap">The <see cref="ClassMap{T}"/> to register.</typeparam>
-    /// <param name="csvText">The raw CSV content.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
-    /// <param name="culture">Optional culture override for type conversion.</param>
-    /// <returns>A list of <typeparamref name="T"/> instances.</returns>
-    public static List<T> ReadFromString<T, TMap>(
-        string csvText,
-        CsvConfiguration? config = null,
-        CultureInfo? culture = null)
-        where TMap : ClassMap
-    {
-        using var reader = new StringReader(csvText);
-        using var csv = CreateCsvReader(reader, config, culture);
-        csv.Context.RegisterClassMap<TMap>();
-        return csv.GetRecords<T>().ToList();
     }
 
     /// <summary>
@@ -71,32 +50,11 @@ public static class CsvReader
     /// <returns>A <see cref="CsvImportResult{T}"/> containing records and any errors.</returns>
     public static CsvImportResult<T> ReadFromStringSafe<T>(
         string csvText,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
     {
         using var reader = new StringReader(csvText);
         return ReadFromReaderSafe<T>(reader, config, culture);
-    }
-
-    /// <summary>
-    /// Parses a CSV string using a custom <see cref="ClassMap{T}"/>, collecting records and per-row errors.
-    /// </summary>
-    /// <typeparam name="T">The type to map each row to.</typeparam>
-    /// <typeparam name="TMap">The <see cref="ClassMap{T}"/> to register.</typeparam>
-    /// <param name="csvText">The raw CSV content.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
-    /// <param name="culture">Optional culture override for type conversion.</param>
-    /// <returns>A <see cref="CsvImportResult{T}"/> containing records and any errors.</returns>
-    public static CsvImportResult<T> ReadFromStringSafe<T, TMap>(
-        string csvText,
-        CsvConfiguration? config = null,
-        CultureInfo? culture = null)
-        where TMap : ClassMap
-    {
-        using var reader = new StringReader(csvText);
-        using var csv = CreateCsvReader(reader, config, culture);
-        csv.Context.RegisterClassMap<TMap>();
-        return ReadSafe<T>(csv);
     }
 
     // -------------------------------------------------------------------------
@@ -114,11 +72,11 @@ public static class CsvReader
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static List<T> ReadFromReader<T>(
         TextReader textReader,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
     {
         using var csv = CreateCsvReader(textReader, config, culture);
-        return csv.GetRecords<T>().ToList();
+        return ReadRecords<T>(csv);
     }
 
     /// <summary>
@@ -132,7 +90,7 @@ public static class CsvReader
     /// <returns>A <see cref="CsvImportResult{T}"/> containing records and any errors.</returns>
     public static CsvImportResult<T> ReadFromReaderSafe<T>(
         TextReader textReader,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
     {
         using var csv = CreateCsvReader(textReader, config, culture);
@@ -157,7 +115,7 @@ public static class CsvReader
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static List<T> ReadFromStream<T>(
         Stream stream,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null,
         bool leaveOpen = false)
     {
@@ -178,7 +136,7 @@ public static class CsvReader
     /// <returns>A <see cref="CsvImportResult{T}"/> containing records and any errors.</returns>
     public static CsvImportResult<T> ReadFromStreamSafe<T>(
         Stream stream,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null,
         bool leaveOpen = false)
     {
@@ -200,7 +158,7 @@ public static class CsvReader
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static async Task<List<T>> ReadFromStreamAsync<T>(
         Stream stream,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null,
         bool leaveOpen = false,
         CancellationToken cancellationToken = default)
@@ -225,7 +183,7 @@ public static class CsvReader
     /// <returns>An async sequence of <typeparamref name="T"/> instances.</returns>
     public static async IAsyncEnumerable<T> StreamFromStream<T>(
         Stream stream,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null,
         bool leaveOpen = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -233,7 +191,7 @@ public static class CsvReader
         using var reader = new StreamReader(stream, leaveOpen: leaveOpen);
         using var csv = CreateCsvReader(reader, config, culture);
 
-        await foreach (var record in csv.GetRecordsAsync<T>(cancellationToken))
+        await foreach (var record in ReadRecordsAsync<T>(csv, cancellationToken))
         {
             yield return record;
         }
@@ -253,32 +211,11 @@ public static class CsvReader
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static List<T> ReadFromFile<T>(
         string path,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
     {
         using var reader = new StreamReader(path);
         return ReadFromReader<T>(reader, config, culture);
-    }
-
-    /// <summary>
-    /// Reads all records from a CSV file, applying a custom <see cref="ClassMap{T}"/>.
-    /// </summary>
-    /// <typeparam name="T">The type to map each row to.</typeparam>
-    /// <typeparam name="TMap">The <see cref="ClassMap{T}"/> to register.</typeparam>
-    /// <param name="path">Absolute or relative path to the CSV file.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
-    /// <param name="culture">Optional culture override for type conversion.</param>
-    /// <returns>A list of <typeparamref name="T"/> instances.</returns>
-    public static List<T> ReadFromFile<T, TMap>(
-        string path,
-        CsvConfiguration? config = null,
-        CultureInfo? culture = null)
-        where TMap : ClassMap
-    {
-        using var reader = new StreamReader(path);
-        using var csv = CreateCsvReader(reader, config, culture);
-        csv.Context.RegisterClassMap<TMap>();
-        return csv.GetRecords<T>().ToList();
     }
 
     /// <summary>
@@ -291,33 +228,11 @@ public static class CsvReader
     /// <returns>A <see cref="CsvImportResult{T}"/> containing records and any errors.</returns>
     public static CsvImportResult<T> ReadFromFileSafe<T>(
         string path,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
     {
         using var reader = new StreamReader(path);
         return ReadFromReaderSafe<T>(reader, config, culture);
-    }
-
-    /// <summary>
-    /// Reads all records from a CSV file using a custom <see cref="ClassMap{T}"/>,
-    /// capturing per-row errors instead of throwing.
-    /// </summary>
-    /// <typeparam name="T">The type to map each row to.</typeparam>
-    /// <typeparam name="TMap">The <see cref="ClassMap{T}"/> to register.</typeparam>
-    /// <param name="path">Absolute or relative path to the CSV file.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
-    /// <param name="culture">Optional culture override for type conversion.</param>
-    /// <returns>A <see cref="CsvImportResult{T}"/> containing records and any errors.</returns>
-    public static CsvImportResult<T> ReadFromFileSafe<T, TMap>(
-        string path,
-        CsvConfiguration? config = null,
-        CultureInfo? culture = null)
-        where TMap : ClassMap
-    {
-        using var reader = new StreamReader(path);
-        using var csv = CreateCsvReader(reader, config, culture);
-        csv.Context.RegisterClassMap<TMap>();
-        return ReadSafe<T>(csv);
     }
 
     /// <summary>
@@ -331,37 +246,13 @@ public static class CsvReader
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static async Task<List<T>> ReadFromFileAsync<T>(
         string path,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null,
         CancellationToken cancellationToken = default)
     {
         await using var stream = File.OpenRead(path);
         using var reader = new StreamReader(stream);
         using var csv = CreateCsvReader(reader, config, culture);
-        return await CollectAsync<T>(csv, cancellationToken);
-    }
-
-    /// <summary>
-    /// Reads all records from a CSV file asynchronously using a custom <see cref="ClassMap{T}"/>.
-    /// </summary>
-    /// <typeparam name="T">The type to map each row to.</typeparam>
-    /// <typeparam name="TMap">The <see cref="ClassMap{T}"/> to register.</typeparam>
-    /// <param name="path">Absolute or relative path to the CSV file.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
-    /// <param name="culture">Optional culture override for type conversion.</param>
-    /// <param name="cancellationToken">Token to cancel the operation.</param>
-    /// <returns>A list of <typeparamref name="T"/> instances.</returns>
-    public static async Task<List<T>> ReadFromFileAsync<T, TMap>(
-        string path,
-        CsvConfiguration? config = null,
-        CultureInfo? culture = null,
-        CancellationToken cancellationToken = default)
-        where TMap : ClassMap
-    {
-        await using var stream = File.OpenRead(path);
-        using var reader = new StreamReader(stream);
-        using var csv = CreateCsvReader(reader, config, culture);
-        csv.Context.RegisterClassMap<TMap>();
         return await CollectAsync<T>(csv, cancellationToken);
     }
 
@@ -376,7 +267,7 @@ public static class CsvReader
     /// <returns>An async sequence of <typeparamref name="T"/> instances.</returns>
     public static async IAsyncEnumerable<T> StreamFromFile<T>(
         string path,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -384,36 +275,7 @@ public static class CsvReader
         using var reader = new StreamReader(stream);
         using var csv = CreateCsvReader(reader, config, culture);
 
-        await foreach (var record in csv.GetRecordsAsync<T>(cancellationToken))
-        {
-            yield return record;
-        }
-    }
-
-    /// <summary>
-    /// Streams records from a file one at a time via <see cref="IAsyncEnumerable{T}"/>,
-    /// applying a custom <see cref="ClassMap{T}"/>.
-    /// </summary>
-    /// <typeparam name="T">The type to map each row to.</typeparam>
-    /// <typeparam name="TMap">The <see cref="ClassMap{T}"/> to register.</typeparam>
-    /// <param name="path">Absolute or relative path to the CSV file.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
-    /// <param name="culture">Optional culture override for type conversion.</param>
-    /// <param name="cancellationToken">Token to cancel the operation.</param>
-    /// <returns>An async sequence of <typeparamref name="T"/> instances.</returns>
-    public static async IAsyncEnumerable<T> StreamFromFile<T, TMap>(
-        string path,
-        CsvConfiguration? config = null,
-        CultureInfo? culture = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        where TMap : ClassMap
-    {
-        await using var stream = File.OpenRead(path);
-        using var reader = new StreamReader(stream);
-        using var csv = CreateCsvReader(reader, config, culture);
-        csv.Context.RegisterClassMap<TMap>();
-
-        await foreach (var record in csv.GetRecordsAsync<T>(cancellationToken))
+        await foreach (var record in ReadRecordsAsync<T>(csv, cancellationToken))
         {
             yield return record;
         }
@@ -429,26 +291,48 @@ public static class CsvReader
     /// </summary>
     private static CsvHelper.CsvReader CreateCsvReader(
         TextReader textReader,
-        CsvConfiguration? config,
+        CsvReaderOptions? config,
         CultureInfo? culture)
     {
         config ??= CsvDefaults.CreateDefault(culture: culture);
-        return new CsvHelper.CsvReader(textReader, config);
+        return CsvHelper.CsvReader.Create(textReader, config, leaveOpen: true);
     }
 
     /// <summary>
     /// Asynchronously consumes <paramref name="csv"/> into a list of <typeparamref name="T"/>.
     /// </summary>
+    private static List<T> ReadRecords<T>(CsvHelper.CsvReader csv)
+    {
+        var records = new List<T>();
+        while (csv.Read())
+        {
+            records.Add(csv.GetRecord<T>());
+        }
+
+        return records;
+    }
+
     private static async Task<List<T>> CollectAsync<T>(
         CsvHelper.CsvReader csv,
         CancellationToken cancellationToken)
     {
         var records = new List<T>();
-        await foreach (var record in csv.GetRecordsAsync<T>(cancellationToken))
+        await foreach (var record in ReadRecordsAsync<T>(csv, cancellationToken))
         {
             records.Add(record);
         }
+
         return records;
+    }
+
+    private static async IAsyncEnumerable<T> ReadRecordsAsync<T>(
+        CsvHelper.CsvReader csv,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        while (await csv.ReadAsync(cancellationToken))
+        {
+            yield return csv.GetRecord<T>();
+        }
     }
 
     /// <summary>
@@ -458,13 +342,6 @@ public static class CsvReader
     private static CsvImportResult<T> ReadSafe<T>(CsvHelper.CsvReader csv)
     {
         var result = new CsvImportResult<T>();
-
-        // Read and skip the header row when present.
-        if (csv.Configuration.HasHeaderRecord)
-        {
-            csv.Read();
-            csv.ReadHeader();
-        }
 
         while (csv.Read())
         {
@@ -477,9 +354,9 @@ public static class CsvReader
             catch (Exception ex)
             {
                 result.Errors.Add(new CsvImportError(
-                    Row: csv.Context.Parser?.Row,
+                    Row: checked((int)(csv.RowNumber + (csv.Options.HasHeader ? 1 : 0))),
                     Message: ex.Message,
-                    RawRecord: csv.Context.Parser?.RawRecord));
+                    RawRecord: Encoding.UTF8.GetString(csv.RawRecord)));
             }
         }
 

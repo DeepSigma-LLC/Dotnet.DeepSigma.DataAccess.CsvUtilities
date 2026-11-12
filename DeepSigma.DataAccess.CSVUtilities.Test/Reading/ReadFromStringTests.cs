@@ -14,8 +14,7 @@ public sealed class ReadFromStringTests
     [Fact]
     public void ReadFromString_WithValidCsv_ReturnsMappedRecords()
     {
-        // CustomerCsvMap maps "customer_id" → Id, "first_name" → FirstName, etc.
-        var records = CsvReader.ReadFromString<CustomerCsvRow, CustomerCsvMap>(ValidCsv);
+        var records = CsvReader.ReadFromString<CustomerCsvRow>(ValidCsv);
 
         Assert.Equal(2, records.Count);
         Assert.Equal(1, records[0].Id);
@@ -56,8 +55,7 @@ public sealed class ReadFromStringTests
             "1;Alice;Smith;alice@example.com;99.99\n";
 
         var config = CsvDefaults.CreateDefault(delimiter: ";");
-        // CustomerCsvMap maps "customer_id" → Id so the semicolon-delimited headers resolve correctly.
-        var records = CsvReader.ReadFromString<CustomerCsvRow, CustomerCsvMap>(csv, config);
+        var records = CsvReader.ReadFromString<CustomerCsvRow>(csv, config);
 
         Assert.Single(records);
         Assert.Equal(1, records[0].Id);
@@ -67,14 +65,14 @@ public sealed class ReadFromStringTests
     [Fact]
     public void ReadFromString_HeaderMatchingIsCaseInsensitiveAndIgnoresSeparators()
     {
-        // Headers use spaces and mixed casing — CsvDefaults strips/lowercases them.
+        // Header normalization is applied before the generated mapper resolves columns.
         const string csv =
             "Customer ID,First Name,Last Name,Email Address,Balance\n" +
             "1,Alice,Smith,alice@example.com,50.00\n";
 
         // CustomerCsvRow property names: Id, FirstName, LastName, Email, Balance
-        // PrepareHeaderForMatch strips spaces: "customerid","firstname","lastname","emailaddress","balance"
-        // Property names lowercased:         "id","firstname","lastname","email","balance"
+        // Header normalization strips spaces: "customerid","firstname","lastname","emailaddress","balance"
+        // Attribute aliases normalize to the matching names.
         // "customerid" won't match "id" — so Id stays default 0, but the rest should map.
         var records = CsvReader.ReadFromString<CustomerCsvRow>(csv);
 

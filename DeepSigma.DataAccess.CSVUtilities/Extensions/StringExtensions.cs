@@ -1,7 +1,5 @@
-using CsvHelper.Configuration;
+using CsvHelper;
 using DeepSigma.DataAccess.CsvUtilities.Configuration;
-using DeepSigma.DataAccess.CsvUtilities.Reading;
-using DeepSigma.DataAccess.CsvUtilities.Writing;
 using System.Globalization;
 
 namespace DeepSigma.DataAccess.CsvUtilities.Extensions;
@@ -21,11 +19,11 @@ public static class StringExtensions
     /// <returns>A list of <typeparamref name="T"/> instances.</returns>
     public static List<T> FromCsv<T>(
         this string csvText,
-        CsvConfiguration? config = null,
+        CsvReaderOptions? config = null,
         CultureInfo? culture = null)
         where T : class
     {
-        return CsvReader.ReadFromString<T>(csvText, config, culture);
+        return Reading.CsvReader.ReadFromString<T>(csvText, config, culture);
     }
 
     /// <summary>
@@ -33,14 +31,14 @@ public static class StringExtensions
     /// </summary>
     /// <typeparam name="T">The record type.</typeparam>
     /// <param name="records">The records to serialize.</param>
-    /// <param name="config">Optional configuration; defaults to <see cref="CsvDefaults.CreateDefault"/>.</param>
+    /// <param name="config">Optional CsvHelper writer options; defaults to <see cref="CsvDefaults.CreateWriterOptions"/>.</param>
     /// <param name="culture">Optional culture override for type conversion.</param>
     /// <returns>A CSV-formatted string.</returns>
     public static string ToCsv<T>(
         this IEnumerable<T> records,
-        CsvConfiguration? config = null,
+        CsvWriterOptions? config = null,
         CultureInfo? culture = null)
     {
-        return CsvWriter.WriteToString(records, config, culture);
+        return Writing.CsvWriter.WriteToString(records, config, culture);
     }
 }
